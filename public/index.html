@@ -378,6 +378,55 @@
   body.pip section { margin-top: 12px; }
   body.pip section:first-child { margin-top: 0; }
   body.pip .grid { grid-template-columns: 1fr; }
+  body.wallpaper header .controls, body.wallpaper #sideTab { display: none; }
+  body.full.wallpaper header {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 5;
+    display: grid;
+    gap: 8px;
+    width: max-content;
+    max-width: min(340px, calc(100% - 32px));
+    box-sizing: border-box;
+    padding: 10px 14px;
+    border: 0;
+    border-radius: 14px;
+    background: rgba(17, 30, 48, .84);
+    backdrop-filter: blur(10px);
+    color-scheme: dark;
+    --ink: #f1f6ff;
+    --muted: #d2dfef;
+    color: var(--ink);
+  }
+  body.full.wallpaper header h1 { display: block; white-space: normal; }
+  body.full.wallpaper header .summary { display: flex; flex-wrap: wrap; width: auto; gap: 4px 12px; }
+  body.full.wallpaper header .legend {
+    position: static;
+    padding: 0;
+    gap: 4px 12px;
+    background: transparent;
+    backdrop-filter: none;
+  }
+  body.full.wallpaper header .legend[hidden] { display: none; }
+  body.wallpaper #officeWrap { pointer-events: none; }
+  body.wallpaper .office {
+    --sun-radius: clamp(7px, 1.3vmin, 17px);
+    --sun-position: var(--sun-x, 50%) var(--sun-y, 16%);
+    background:
+      radial-gradient(circle at var(--sun-position), var(--sun-disc, transparent) var(--sun-radius),
+        transparent calc(var(--sun-radius) + 1px)),
+      radial-gradient(circle at var(--sun-position), var(--sun-halo, transparent), transparent calc(var(--sun-radius) * 5)),
+      radial-gradient(ellipse at var(--sun-position), var(--sky-light, #304267), transparent 68%),
+      linear-gradient(180deg, var(--sky-top, #161f3b), var(--sky-bottom, #101829));
+  }
+  .light-preview:not([hidden]) {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto;
+  }
+  .light-preview output { min-width: 5ch; font-variant-numeric: tabular-nums; }
+  body.wallpaper .office-canvas {
+    filter: brightness(var(--room-light, 1)) sepia(var(--room-warmth, 0));
+  }
 </style>
 </head>
 <body>
@@ -385,6 +434,12 @@
   <header>
     <h1>👀 <span data-t="title"></span></h1>
     <div class="summary" id="summary"></div>
+    <div class="light-preview" id="lightPreview" hidden>
+      <label for="lightTime">光照时间</label>
+      <input id="lightTime" type="range" min="0" max="1439" step="1">
+      <output id="lightTimeValue" for="lightTime"></output>
+      <button class="btn" id="lightTimeReset" type="button">跟随当前时间</button>
+    </div>
     <button class="newver" id="newVer" hidden></button>
     <div class="controls">
       <div class="seg" id="viewSeg">
@@ -534,7 +589,67 @@ function readPreferences() {
     return [k, validPreference(k, v) ? v : d];
   }));
 }
-const PIP = new URLSearchParams(location.search).get('pip') === '1';
+const query = new URLSearchParams(location.search);
+const WALLPAPER = query.get('wallpaper') === '1';
+const PIP = !WALLPAPER && query.get('pip') === '1';
+if (WALLPAPER) {
+  document.body.classList.add('wallpaper');
+  document.querySelector('header').append(
+    document.getElementById('legend'),
+    document.getElementById('agentLegend'),
+  );
+  const preview = query.get('preview') === '1';
+  const slider = document.getElementById('lightTime');
+  const output = document.getElementById('lightTimeValue');
+  const reset = document.getElementById('lightTimeReset');
+  let previewMinute = null;
+  const updateLight = () => {
+    const now = new Date();
+    if (previewMinute !== null) now.setHours(0, previewMinute, 0, 0);
+    if (preview) {
+      slider.value = now.getHours() * 60 + now.getMinutes();
+      output.value = [now.getHours(), now.getMinutes()].map(n => String(n).padStart(2, '0')).join(':');
+      slider.setAttribute('aria-valuetext', output.value);
+      reset.disabled = previewMinute === null;
+    }
+    const light = wallpaperLight(now);
+    for (const [name, value] of Object.entries(light)) document.body.style.setProperty(name, value);
+  };
+  if (preview) {
+    document.getElementById('lightPreview').hidden = false;
+    slider.addEventListener('input', () => { previewMinute = slider.valueAsNumber; updateLight(); });
+    reset.addEventListener('click', () => { previewMinute = null; updateLight(); });
+  }
+  updateLight();
+  setInterval(updateLight, 60_000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) updateLight(); });
+}
+
+function wallpaperLight(now) {
+  // Approximate a local sunrise and sunset without needing a location.
+  const hours = now.getHours() + now.getMinutes() / 60;
+  const sun = Math.sin((hours - 6) * Math.PI / 12);
+  const clamp = (n) => Math.max(0, Math.min(1, n));
+  const daylight = clamp(sun * 1.35);
+  const twilight = clamp(1 - Math.abs(sun) * 4);
+  const mix = (a, b, amount) => a.map((channel, i) => channel + (b[i] - channel) * amount);
+  const sky = (night, day, dawn, dusk) => {
+    const base = mix(night, day, daylight);
+    const warm = mix(base, hours < 12 ? dawn : dusk, twilight);
+    return 'rgb(' + warm.map(Math.round).join(', ') + ')';
+  };
+  return {
+    '--sky-top': sky([19, 29, 55], [89, 153, 207], [104, 97, 149], [108, 75, 130]),
+    '--sky-light': sky([52, 73, 112], [221, 242, 252], [255, 218, 178], [255, 173, 120]),
+    '--sky-bottom': sky([13, 22, 39], [126, 170, 197], [172, 124, 139], [148, 90, 116]),
+    '--sun-x': (15 + 70 * clamp((hours - 5.5) / 13)) + '%',
+    '--sun-y': (16 - 11 * sun) + '%',
+    '--sun-disc': `rgb(255 ${Math.round(177 + 73 * daylight)} ${Math.round(104 + 123 * daylight)} / ${clamp((sun + 0.08) * 9)})`,
+    '--sun-halo': `rgb(255 195 133 / ${0.36 * clamp((sun + 0.08) * 9)})`,
+    '--room-light': 0.85 + 0.22 * daylight + 0.14 * twilight,
+    '--room-warmth': 0.22 * twilight,
+  };
+}
 if (PIP) document.body.classList.add('pip');
 
 // ?view=office&quality=high&scene=pirate (what `--scene` opens) sets the prefs.
@@ -545,12 +660,19 @@ if (PIP) document.body.classList.add('pip');
       for (const [k, v] of Object.entries(JSON.parse(q.get('prefs')) || {})) if (validPreference(k, v)) store.set(k, v);
     } catch { /* malformed preferences use the saved defaults */ }
   }
-  for (const k of ['view', 'quality', 'scene', 'lang']) if (validPreference(k, q.get(k))) store.set(k, q.get(k));
-  if (location.search) history.replaceState(null, '', location.pathname + (PIP ? '?pip=1' : ''));
+  if (!WALLPAPER) {
+    for (const k of ['view', 'quality', 'scene', 'lang']) if (validPreference(k, q.get(k))) store.set(k, q.get(k));
+    if (location.search) history.replaceState(null, '', location.pathname + (PIP ? '?pip=1' : ''));
+  }
 }
 
 const state = {
   ...readPreferences(),
+  ...(WALLPAPER ? {
+    view: 'office', quality: validPreference('quality', query.get('quality')) ? query.get('quality') : 'mid',
+    scene: validPreference('scene', query.get('scene')) ? query.get('scene') : 'office',
+    agents: [], side: false, notify: false, sound: false,
+  } : {}),
   // The dashboard is always the full-window office with the agent panel; the pop-out keeps its compact views.
   full: !PIP,
   scenes: [],
@@ -921,6 +1043,7 @@ function refreshTip() {
 }
 function hideTip() { tipKey = null; tipPinned = false; tip.style.display = 'none'; tip.classList.remove('pinned'); }
 const officeOpts = {
+  wallpaper: WALLPAPER,
   compact: PIP,
   onFrame: (renderer) => popout?.drawPreview(renderer),
   label: (s) => (s.agent === 'omp' && s.subagent && s.title) || s.project || AGENT_NAME[s.agent] || s.agent,

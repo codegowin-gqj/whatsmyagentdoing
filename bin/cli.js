@@ -23,6 +23,7 @@ Options:
   --hours <n>       Show sessions active in the last n hours (default 24)
   --omp-dir <path>  OMP sessions root (or a direct --session-dir directory)
   --no-open         Don't open the browser
+  --wallpaper       Serve a private desktop wallpaper without opening a browser
   --private         Hide prompts, replies and titles; show status only
   --json            Print one snapshot as JSON and exit
   --demo            Show a made-up team instead of your sessions
@@ -72,6 +73,7 @@ function parseArgs(argv) {
     }
     else if (a.startsWith('--omp-dir=')) o.ompDir = a.slice(10);
     else if (a === '--no-open') o.open = false;
+    else if (a === '--wallpaper') { o.wallpaper = true; o.open = false; o.privacy = true; }
     else if (a === '--private') o.privacy = true;
     else if (a === '--json') o.json = true;
     else if (a === '--demo') o.demo = true;
@@ -222,8 +224,15 @@ async function main() {
     return;
   }
 
-  const query = o.scene ? `/?view=office&quality=high&scene=${encodeURIComponent(o.scene)}` : '';
-  if (await alreadyRunning(o.port)) {
+  const params = new URLSearchParams();
+  if (o.wallpaper) params.set('wallpaper', '1');
+  if (o.scene) {
+    params.set('view', 'office');
+    params.set('quality', 'high');
+    params.set('scene', o.scene);
+  }
+  const query = params.size ? `/?${params}` : '';
+  if (!o.wallpaper && await alreadyRunning(o.port)) {
     const url = `http://localhost:${o.port}${query}`;
     console.log(`Already running at ${url}`);
     await printUpdateHint();
@@ -256,16 +265,18 @@ async function main() {
       else { console.error(err.message); process.exit(1); }
     });
     server.listen(port, '127.0.0.1', () => {
-      const url = `http://localhost:${port}`;
+      const url = `http://localhost:${server.address().port}`;
       const n = watcher.sessions().length;
       const openUrl = url + query;
       const what = o.demo ? 'demo team' : `${n} session${n === 1 ? '' : 's'} in the last ${o.hours}h`;
       console.log(`whatsmyagentdoing v${updater.localVersion()} → ${url}  (${what}, Ctrl+C to stop)`);
-      printUpdateHint();
+      if (o.wallpaper) console.log(`Lively wallpaper URL: ${openUrl}`);
+      else printUpdateHint();
       if (o.open) openBrowser(openUrl);
     });
   };
-  listen(o.port, 10);
+  // Lively saves the URL, so an occupied port must not silently change it.
+  listen(o.port, o.wallpaper ? 0 : 10);
 }
 
 main().catch((err) => { console.error(err.message); process.exitCode = 1; });

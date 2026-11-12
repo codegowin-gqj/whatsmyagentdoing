@@ -202,13 +202,14 @@
   // ---------------------------------------------------------------- office
 
   class Office {
-    constructor(root, { onHover, label, onFrame, showAgent = true, compact = false } = {}) {
+    constructor(root, { onHover, label, onFrame, showAgent = true, compact = false, wallpaper = false } = {}) {
       this.root = root;
       this.onHover = onHover || (() => {});
       this.label = label || ((s) => s.project || s.agent);
       this.onFrame = onFrame;
       this.showAgent = showAgent;
       this.compact = compact;
+      this.wallpaper = wallpaper;
       this.offDutyLabel = 'went home';
       this.canvas = document.createElement('canvas');
       this.canvas.className = 'office-canvas';
@@ -645,8 +646,10 @@
       const top = this.iso(0, 0, WALL_H).y - 20, bottom = this.iso(W, D, 0).y + 10;
       const inset = this.inset();
       const vw = Math.max(120, this.cw - inset);
-      const zoom = Math.min(vw / (right - left + 30), this.ch / (bottom - top + 30), 2);
-      const want = { zoom, ox: vw / 2 - ((left + right) / 2) * zoom, oy: this.ch / 2 - ((top + bottom) / 2) * zoom };
+      const sky = this.wallpaper ? this.ch * 0.18 : 0;
+      const taskbarSpace = this.wallpaper ? this.ch * 0.065 : 0;
+      const zoom = Math.min(vw / (right - left + 30), (this.ch - sky - taskbarSpace) / (bottom - top + 30), 2);
+      const want = { zoom, ox: vw / 2 - ((left + right) / 2) * zoom, oy: (this.ch + sky - taskbarSpace) / 2 - ((top + bottom) / 2) * zoom };
       // While the inset eases, follow it exactly; otherwise settle gently.
       if (!this.cam || this.insetMoving()) this.cam = want;
       else for (const k of ['zoom', 'ox', 'oy']) this.cam[k] += (want[k] - this.cam[k]) * 0.1;
